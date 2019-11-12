@@ -2,6 +2,7 @@ package de.hpi.ddm.actors;
 
 import java.io.Serializable;
 
+import akka.serialization.*;
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
 import akka.actor.ActorSelection;
@@ -40,6 +41,16 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		private ActorRef sender;
 		private ActorRef receiver;
 	}
+
+	@Data @NoArgsConstructor @AllArgsConstructor
+	public static class serializedByteMessage implements Serializable {
+		private static final long serialVersionUID = 2237807743872319842L;
+		private byte[] bytes;
+		private ActorRef sender;
+		private ActorRef receiver;
+		private int serializerID;
+		private String manifest;
+	}
 	
 	/////////////////
 	// Actor State //
@@ -58,6 +69,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		return receiveBuilder()
 				.match(LargeMessage.class, this::handle)
 				.match(BytesMessage.class, this::handle)
+				.match(serializedByteMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -65,14 +77,29 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	private void handle(LargeMessage<?> message) {
 		ActorRef receiver = message.getReceiver();
 		ActorSelection receiverProxy = this.context().actorSelection(receiver.path().child(DEFAULT_NAME));
-		
-		// This will definitely fail in a distributed setting if the serialized message is large!
-		// Solution options:
-		// 1. Serialize the object and send its bytes batch-wise (make sure to use artery's side channel then).
-		// 2. Serialize the object and send its bytes via Akka streaming.
-		// 3. Send the object via Akka's http client-server component.
-		// 4. Other ideas ...
-		receiverProxy.tell(new BytesMessage<>(message.getMessage(), this.sender(), message.getReceiver()), this.self());
+		// Serialize the object and send its bytes batch-wise (make sure to use artery's side channel then).
+		akka.actor.ActorSystem system = this.context().system();
+		Serialization serialization = SerializationExtension.get(system);
+		byte[] serializedByteArray = serialization.serialize(message.getMessage()).get();
+		int serializerId = serialization.findSerializerFor(message.getMessage()).identifier();
+		String manifest = Serializers.manifestFor(serialization.findSerializerFor(message.getMessage()), message.getMessage());
+
+		serializedByteMessage myserializedMessage = new serializedByteMessage(serializedByteArray, this.sender(), message.getReceiver(),
+				serializerId,
+				manifest);
+
+		// send the serialized byte Message via Artery's side chanel
+		receiverProxy.tell(myserializedMessage, this.sender());
+	}
+
+	private void handle(serializedByteMessage message) {
+		// Setup for deserialization
+		akka.actor.ActorSystem system = this.context().system();
+		Serialization serialization = SerializationExtension.get(system);
+
+		// Forward the deserialized Message
+		message.getReceiver().tell(serialization.deserialize(message.getBytes(), message.getSerializerID(),
+				message.getManifest()).get(), message.getSender());
 	}
 
 	private void handle(BytesMessage<?> message) {
