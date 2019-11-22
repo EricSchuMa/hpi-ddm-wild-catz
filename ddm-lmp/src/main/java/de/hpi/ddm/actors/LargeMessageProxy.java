@@ -122,8 +122,6 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
 		SourceRef<List<Byte>> streamref = streamMessage.getFutureStreamRef();
 
-		// make sure the arrayList is empty
-		ActorRef thisActor = this.getSelf();
 		streamref.getSource().runWith(Sink.seq(), materializer).whenComplete(
 				(byteList, exception) -> {
 						byte[] serializedByteArray = new byte[streamMessage.getLength()];
