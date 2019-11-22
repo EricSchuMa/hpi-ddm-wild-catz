@@ -1,23 +1,18 @@
 package de.hpi.ddm.actors;
 
 import java.io.*;
-import java.util.ArrayList;
-
-import akka.util.Timeout;
-import com.esotericsoftware.kryo.Kryo;
-import scala.concurrent.Await;
-import scala.concurrent.Future;
+import java.util.Arrays;
+import java.util.List;
 
 import akka.NotUsed;
 import akka.actor.*;
 import akka.serialization.*;
-import akka.protobuf.*;
 import akka.stream.*;
-import akka.stream.scaladsl.*;
+import akka.stream.javadsl.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import scala.concurrent.duration.Duration;
+import org.apache.commons.lang3.ArrayUtils;
 
 public class LargeMessageProxy extends AbstractLoggingActor {
 
@@ -26,8 +21,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	////////////////////////
 
 	public static final String DEFAULT_NAME = "largeMessageProxy";
-	private final ArrayList alist = new ArrayList();
-	
+
 	public static Props props() {
 		return Props.create(LargeMessageProxy.class);
 	}
@@ -35,7 +29,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	////////////////////
 	// Actor Messages //
 	////////////////////
-	
+
 	@Data @NoArgsConstructor @AllArgsConstructor
 	public static class LargeMessage<T> implements Serializable {
 		private static final long serialVersionUID = 2940665245810221108L;
@@ -44,10 +38,11 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
-	public static class StreamMessage<T> implements Serializable {
+	public static class StreamMessage implements Serializable {
 		private static final long serialVersionUID = 4057807743872319842L;
-		private Future<SourceRef<Byte>> futureStreamRef;
+		private SourceRef<List<Byte>> futureStreamRef;
 		private ActorRef receiver;
+		private int length;
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
@@ -57,16 +52,10 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		private int serializerID;
 		private String manifest;
 	}
-
-	@Data @NoArgsConstructor @AllArgsConstructor
-	public static class StreamReceived implements Serializable {
-		private static final long serialVersionUID =  2237802243872319232L;
-		private ActorRef receiver;
-	}
 	/////////////////
 	// Actor State //
 	/////////////////
-	
+
 	/////////////////////
 	// Actor Lifecycle //
 	/////////////////////
@@ -74,13 +63,12 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	////////////////////
 	// Actor Behavior //
 	////////////////////
-	
+
 	@Override
 	public Receive createReceive() {
 		return receiveBuilder()
 				.match(LargeMessage.class, this::handle)
 				.match(StreamMessage.class, this::handle)
-				.match(StreamReceived.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -115,55 +103,52 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 			log().error("Error while serializing data");
 		}
 
-		 ByteString fromArray = ByteString.copyFrom(bos.toByteArray());
+		byte [] rawByteArray = bos.toByteArray();
 
 		// Implement a Source and materialize it into a SourceRef
 		final Materializer materializer = ActorMaterializer.create(system);
-		final Source<Byte, NotUsed> source = akka.stream.javadsl.Source.from(fromArray).asScala();  // Create source from iterable
-		Future<SourceRef<Byte>> stream_ref = source.runWith(StreamRefs.sourceRef(), materializer);
+		final Source<List<Byte>, NotUsed> source = Source.from(Arrays.asList(ArrayUtils.toObject(rawByteArray))).grouped(10000);  // Create source from iterable
+		SourceRef<List<Byte>> stream_ref = source.runWith(StreamRefs.sourceRef(), materializer);
 
-		StreamMessage newStreamMessage = new StreamMessage(stream_ref, message.getReceiver());
+		StreamMessage newStreamMessage = new StreamMessage(stream_ref, message.getReceiver(), rawByteArray.length);
 
 		// Send the SourceRef over Artery's remoting
 		receiverProxy.tell(newStreamMessage, this.sender());
 	}
 
-	private void handle(StreamMessage streamMessage) throws Exception {
+	private void handle(StreamMessage streamMessage) throws IOException, ClassNotFoundException, Exception {
 		akka.actor.ActorSystem system = this.context().system(); // the belonging actor system
 		final Materializer materializer = ActorMaterializer.create(system);
 
-		// Wait to receive the source reference from Future
-		Timeout timeout = new Timeout(Duration.create(1000, "seconds"));
-
-		Future<SourceRef<Byte>> streamref = streamMessage.getFutureStreamRef();
-		SourceRef<Byte> result = Await.result(streamref, timeout.duration());
+		SourceRef<List<Byte>> streamref = streamMessage.getFutureStreamRef();
 
 		// make sure the arrayList is empty
-		this.alist.clear();
 		ActorRef thisActor = this.getSelf();
-		result.getSource().runForeach(alist::add, materializer).thenRun(new Runnable() {
-			@Override
-			public void run() {
-				StreamReceived message = new StreamReceived(streamMessage.getReceiver());
-				thisActor.tell(message, thisActor);
-			}
-		});
-	}
+		streamref.getSource().runWith(Sink.seq(), materializer).whenComplete(
+				(byteList, exception) -> {
+						byte[] serializedByteArray = new byte[streamMessage.getLength()];
+						int index = 0;
+						for (List<Byte> bytes : byteList) {
+							for (Byte aByte : bytes) {
+								serializedByteArray[index] = aByte;
+								index++;
+							}
+						}
 
-	private void handle(StreamReceived message) throws IOException, ClassNotFoundException {
-		byte[] myArray = new byte[alist.size()];
-		for (int i = 0; i < alist.size(); i++) {
-			myArray[i] = (byte) alist.get(i);
-		}
+						// deserialization and sending
+						try {
+							ByteArrayInputStream bis = new ByteArrayInputStream(serializedByteArray);
+							ObjectInputStream ois = new ObjectInputStream(bis);
 
-		ByteArrayInputStream bis = new ByteArrayInputStream(myArray);
-		ObjectInputStream ois = new ObjectInputStream(bis);
+							serializedByteMessage my_message = (serializedByteMessage) ois.readObject();
 
-		serializedByteMessage my_message = (serializedByteMessage) ois.readObject();
+							Serialization serialization = SerializationExtension.get(system);
 
-		akka.actor.ActorSystem system = this.context().system(); // the belonging actor system
-		Serialization serialization = SerializationExtension.get(system);
-
-		message.getReceiver().tell(serialization.deserialize(my_message.getBytes(), my_message.getSerializerID(), my_message.getManifest()).get(), this.sender());
+							streamMessage.getReceiver().tell(serialization.deserialize(my_message.getBytes(),
+									my_message.getSerializerID(), my_message.getManifest()).get(), this.sender());
+						} catch (IOException | ClassNotFoundException e) {
+							e.printStackTrace();
+						}
+					});
 	}
 }
