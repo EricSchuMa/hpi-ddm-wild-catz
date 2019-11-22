@@ -106,7 +106,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		byte [] rawByteArray = bos.toByteArray();
 
 		// Implement a Source and materialize it into a SourceRef
-		final Materializer materializer = ActorMaterializer.create(system);
+		final Materializer materializer = Materializer.createMaterializer(system);
 		final Source<List<Byte>, NotUsed> source = Source.from(Arrays.asList(ArrayUtils.toObject(rawByteArray))).grouped(10000);  // Create source from iterable
 		SourceRef<List<Byte>> stream_ref = source.runWith(StreamRefs.sourceRef(), materializer);
 
@@ -118,7 +118,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
 	private void handle(StreamMessage streamMessage) throws IOException, ClassNotFoundException, Exception {
 		akka.actor.ActorSystem system = this.context().system(); // the belonging actor system
-		final Materializer materializer = ActorMaterializer.create(system);
+		final Materializer materializer = Materializer.createMaterializer(system);
 
 		SourceRef<List<Byte>> streamref = streamMessage.getFutureStreamRef();
 
