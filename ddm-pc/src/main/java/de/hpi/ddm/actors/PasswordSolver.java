@@ -49,6 +49,8 @@ public class PasswordSolver extends AbstractLoggingActor {
     }
 
     protected void handle(PasswordMessage message) {
+        hintsSolved = false;
+        passwordSolved = false;
         this.password = message;
         this.master = this.sender();
         log().info("Received Password and trying to solve password ...");
@@ -70,14 +72,15 @@ public class PasswordSolver extends AbstractLoggingActor {
             if (!passwordSolved)
                 advancedPasswordSolver.tell(message, this.self());
             else {
-                log().info("Dropping Worker");
+                // loop the WorkAvailabilityMessages
+                master.tell(message, this.self());
             }
         }
     }
 
     protected void handle(SolvedHint message) throws Exception {
         hintsSolved = true;
-        log().info("Received hints {} \n", message.getPermutation().toString());
+        // log().info("Received hints {} \n", message.getPermutation().toString());
         HintedPasswordMessage hintedPassword = new HintedPasswordMessage(password.getPchars(),
                 password.getPlength(), password.getPassword(), message.getPermutation());
         this.advancedPasswordSolver.tell(hintedPassword, this.self());

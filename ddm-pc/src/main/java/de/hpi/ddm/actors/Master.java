@@ -4,6 +4,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Stack;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
@@ -66,6 +67,7 @@ public class Master extends AbstractLoggingActor {
 	private final ActorRef passwordSolver;
 	private final List<ActorRef> workers;
 	private ArrayList<List<String>> hintSequences;
+	private Stack<PasswordMessage> passwordStack = new Stack<>();
 
 	private long startTime;
 	
@@ -110,48 +112,46 @@ public class Master extends AbstractLoggingActor {
 		///////////////////////////////////////////////////////////////////////////////////////////////////////
 		///////////////////////////////////////////////////////////////////////////////////////////////////////
 
-		if (message.getLines().isEmpty()) {
-			this.collector.tell(new Collector.PrintMessage(), this.self());
-			//this.terminate();
-			return;
-		}
+		if (!message.getLines().isEmpty()) {
 
-		String[] first_line = message.lines.get(0);
-		int id = Integer.parseInt(first_line[0]);
-		String name = first_line[1];
-		String pchars = first_line[2];
-		int plen = Integer.parseInt(first_line[3]);
-		String password = first_line[4];
-		String[] hints = Arrays.copyOfRange(first_line, 5, first_line.length);
+			String pchars = null;
+			for (String[] currentLine : message.getLines()) {
+				int id = Integer.parseInt(currentLine[0]);
+				String name = currentLine[1];
+				pchars = currentLine[2];
+				int plen = Integer.parseInt(currentLine[3]);
+				String password = currentLine[4];
+				String[] hints = Arrays.copyOfRange(currentLine, 5, currentLine.length);
 
-		// Calculate the permutation list
-		if (this.hintSequences.isEmpty()) {
-			for (int i = 0; i < pchars.length(); i++) {
-				String letters_temp = pchars;
-				//Generate string without one character
-				String temp_string = letters_temp.replace(Character.toString(pchars.charAt(i)), "");
-				//Give the string to permutation function which find all the given string permutations, hashes and compares it
-				List<String> list = new ArrayList<>();
-				heapPermutation(temp_string.toCharArray(), pchars.length()-1, 0, list);
-				this.hintSequences.add(list);
+				PasswordMessage currentpassword = new PasswordMessage(id, name, pchars, plen, password,
+						hints, this.hintSequences);
+				passwordStack.push(currentpassword);
 			}
+			// Calculate the permutation list
+			if (this.hintSequences.isEmpty()) {
+				for (int i = 0; i < pchars.length(); i++) {
+					String letters_temp = pchars;
+					//Generate string without one character
+					String temp_string = letters_temp.replace(Character.toString(pchars.charAt(i)), "");
+					//Give the string to permutation function which find all the given string permutations, hashes and compares it
+					List<String> list = new ArrayList<>();
+					heapPermutation(temp_string.toCharArray(), pchars.length() - 1, 0, list);
+					this.hintSequences.add(list);
+				}
+			}
+
+
+			// process the first password
+			if (!passwordStack.empty()) {
+				this.passwordSolver.tell(passwordStack.pop(), this.self());
+			}
+
+		/*for (String[] line : message.getLines())
+			System.out.println(Arrays.toString(line));*/
+
+			this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
+			this.reader.tell(new Reader.ReadMessage(), this.self());
 		}
-
-		PasswordMessage password1 = new PasswordMessage(id,
-				name,
-				pchars,
-				plen,
-				password,
-				hints,
-				this.hintSequences);
-
-		this.passwordSolver.tell(password1, this.self());
-
-		for (String[] line : message.getLines())
-			System.out.println(Arrays.toString(line));
-		
-		this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
-		this.reader.tell(new Reader.ReadMessage(), this.self());
 	}
 	
 	protected void terminate() {
@@ -187,6 +187,13 @@ public class Master extends AbstractLoggingActor {
 
 	protected void handle(FinalResult message) {
 		System.out.println(message.getPassword());
+		if (!passwordStack.empty()){
+			passwordSolver.tell(passwordStack.pop(), this.self());
+		}
+		else {
+			this.collector.tell(new Collector.PrintMessage(), this.self());
+			this.terminate();
+		}
 	}
 
 	private void heapPermutation(char[] a, int size, int n, List<String> l) {

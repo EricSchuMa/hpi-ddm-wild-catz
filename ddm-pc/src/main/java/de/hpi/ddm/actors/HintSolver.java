@@ -45,7 +45,7 @@ public class HintSolver extends AbstractLoggingActor {
         this.hints = message.getHints();
         this.pchars = message.getPchars();
         this.passwordSolver = message.getOwner();
-        log().info("Received Hints and trying to solve them ...");
+        // log().info("Received Hints and trying to solve them ...");
 
         for (List<String> oneLetterList : message.getPermutationList()) {
             WorkPackage workPackage = new WorkPackage(this.hints, oneLetterList, this.self());
