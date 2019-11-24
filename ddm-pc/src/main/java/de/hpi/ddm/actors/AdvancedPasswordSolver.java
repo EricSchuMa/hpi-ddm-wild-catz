@@ -42,7 +42,7 @@ public class AdvancedPasswordSolver extends AbstractLoggingActor {
 
     protected void handle(HintedPasswordMessage message) {
         passwordSolver = this.sender();
-        log().info("Received hinted Password");
+        //log().info("Received hinted Password");
         GFG combinationCalculator = new GFG();
         List<Character> availableCharacterSet = new ArrayList<>();
         for (char possibleCharacter: message.getPchars().toCharArray()) {
@@ -53,7 +53,7 @@ public class AdvancedPasswordSolver extends AbstractLoggingActor {
         List<String> possiblePasswords = new ArrayList<>();
         int plen = message.getPlength();
         combinationCalculator.printAllKLength(availableCharacterSet, plen, possiblePasswords);
-        log().info("Passwords {}", possiblePasswords.toString());
+        //log().info("Passwords {}", possiblePasswords.toString());
 
         this.possiblePasswords = possiblePasswords;
         this.password = message.getPassword();

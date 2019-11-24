@@ -186,7 +186,7 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	protected void handle(FinalResult message) {
-		System.out.println(message.getPassword());
+		log().info("ID: {}, Password {}", message.getId(), message.getPassword());
 		if (!passwordStack.empty()){
 			passwordSolver.tell(passwordStack.pop(), this.self());
 		}
