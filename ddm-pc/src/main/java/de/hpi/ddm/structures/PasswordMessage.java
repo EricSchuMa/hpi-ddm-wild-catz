@@ -1,11 +1,12 @@
 package de.hpi.ddm.structures;
 
-import akka.actor.ActorRef;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 
 
 @Data @NoArgsConstructor @AllArgsConstructor
@@ -17,4 +18,5 @@ public class PasswordMessage implements Serializable {
     private int plength;
     private String password;
     private String [] hints;
+    private ArrayList<List<String>> permutationList;
 }
