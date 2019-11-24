@@ -1,20 +1,11 @@
 package de.hpi.ddm.actors;
 
-import akka.actor.AbstractActor;
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
 
-import akka.remote.EndpointManager;
+import de.hpi.ddm.structures.HintsMessage;
 import de.hpi.ddm.structures.PasswordMessage;
-
-import akka.japi.pf.ReceiveBuilder;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public class PasswordSolver extends AbstractLoggingActor {
 
@@ -24,13 +15,12 @@ public class PasswordSolver extends AbstractLoggingActor {
 
     public static final String  DEFAULT_NAME = "passwordSolver";
 
-    public static Props props(){
-        return Props.create(PasswordSolver.class);
+    public static Props props(final ActorRef hintSolver){
+        return Props.create(PasswordSolver.class, () -> new PasswordSolver(hintSolver));
     }
 
-    public PasswordSolver(){
-        this.workers = new ArrayList<>();
-        this.password = new PasswordMessage();
+    public PasswordSolver(final ActorRef hintSolver){
+        this.hintSolver = hintSolver;
     }
 
     ////////////////////
@@ -40,17 +30,25 @@ public class PasswordSolver extends AbstractLoggingActor {
 
     public Receive createReceive(){
         return receiveBuilder()
-                .match(PasswordMessage.class, object -> this.log().info("Received Password Message"))
+                .match(PasswordMessage.class, this::handle)
                 .matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
                 .build();
+    }
+
+    protected void handle(PasswordMessage message) {
+        this.password = message;
+        log().info("Received Password and trying to solve password ...");
+        HintsMessage hints = new HintsMessage(message.getHints());
+        this.hintSolver.tell(hints, this.sender());
+
     }
 
     /////////////////
     // Actor State //
     /////////////////
 
-    private final List<ActorRef> workers;
-    private final PasswordMessage password;
+    private final ActorRef hintSolver;
+    private PasswordMessage password;
 
     /////////////////////
     // Actor Lifecycle //
