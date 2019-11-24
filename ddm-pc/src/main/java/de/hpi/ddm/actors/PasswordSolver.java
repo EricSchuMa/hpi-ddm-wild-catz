@@ -6,6 +6,11 @@ import akka.actor.Props;
 
 import de.hpi.ddm.structures.HintsMessage;
 import de.hpi.ddm.structures.PasswordMessage;
+import de.hpi.ddm.structures.SolvedHint;
+import de.hpi.ddm.structures.WorkAvailabilityMessage;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class PasswordSolver extends AbstractLoggingActor {
 
@@ -31,6 +36,8 @@ public class PasswordSolver extends AbstractLoggingActor {
     public Receive createReceive(){
         return receiveBuilder()
                 .match(PasswordMessage.class, this::handle)
+                .match(WorkAvailabilityMessage.class, this::handle)
+                .match(SolvedHint.class, this::handle)
                 .matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
                 .build();
     }
@@ -38,9 +45,22 @@ public class PasswordSolver extends AbstractLoggingActor {
     protected void handle(PasswordMessage message) {
         this.password = message;
         log().info("Received Password and trying to solve password ...");
-        HintsMessage hints = new HintsMessage(message.getHints());
-        this.hintSolver.tell(hints, this.sender());
 
+        List<Character> characterList = new ArrayList<>();
+        for (char ch : message.getPchars().toCharArray()) {
+            characterList.add(ch);
+        }
+
+        HintsMessage hints = new HintsMessage(message.getHints(), message.getPermutationList(), characterList, this.self());
+        this.hintSolver.tell(hints, this.sender());
+    }
+
+    protected void handle(WorkAvailabilityMessage message) {
+        this.hintSolver.tell(message, this.self());
+    }
+
+    protected void handle(SolvedHint message) {
+        log().info("Received hints {} \n", message.getPermutation().toString());
     }
 
     /////////////////
