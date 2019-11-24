@@ -3,6 +3,8 @@ package de.hpi.ddm.actors;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import akka.actor.AbstractLoggingActor;
@@ -16,6 +18,9 @@ import akka.cluster.ClusterEvent.MemberUp;
 import akka.cluster.Member;
 import akka.cluster.MemberStatus;
 import de.hpi.ddm.MasterSystem;
+import de.hpi.ddm.structures.SolvedHint;
+import de.hpi.ddm.structures.WorkAvailabilityMessage;
+import de.hpi.ddm.structures.WorkPackage;
 
 public class Worker extends AbstractLoggingActor {
 
@@ -43,6 +48,7 @@ public class Worker extends AbstractLoggingActor {
 
 	private Member masterSystem;
 	private final Cluster cluster;
+	private boolean isInUse = false;
 	
 	/////////////////////
 	// Actor Lifecycle //
@@ -70,6 +76,7 @@ public class Worker extends AbstractLoggingActor {
 				.match(CurrentClusterState.class, this::handle)
 				.match(MemberUp.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
+				.match(WorkPackage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -92,12 +99,33 @@ public class Worker extends AbstractLoggingActor {
 			this.getContext()
 				.actorSelection(member.address() + "/user/" + Master.DEFAULT_NAME)
 				.tell(new Master.RegistrationMessage(), this.self());
+
+			// Tell the master that this worker is available to receive work
+			this.getContext().actorSelection(member.address() + "/user/" + Master.DEFAULT_NAME)
+					.tell(new WorkAvailabilityMessage(this.self()), this.self());
+
+			// From now on this worker might be in use
+			this.isInUse = true;
 		}
 	}
 	
 	private void handle(MemberRemoved message) {
 		if (this.masterSystem.equals(message.member()))
 			this.self().tell(PoisonPill.getInstance(), ActorRef.noSender());
+	}
+
+	private void handle(WorkPackage message) {
+		// hash the permutations and search for targets
+		log().info("Worker {} has received a work package", this.toString());
+		for (String permutation : message.getPermutations()) {
+			if (Arrays.asList(message.getTargets()).contains(hash(permutation))) {
+				List<Character> characterList = new ArrayList<>();
+				for (char ch : permutation.toCharArray()) {
+					characterList.add(ch);
+				}
+				message.getOwner().tell(new SolvedHint(characterList), this.self());
+			}
+		}
 	}
 	
 	private String hash(String line) {
