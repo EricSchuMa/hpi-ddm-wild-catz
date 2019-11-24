@@ -1,7 +1,6 @@
 package de.hpi.ddm.actors;
 
 import java.io.Serializable;
-import java.net.PasswordAuthentication;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -12,6 +11,7 @@ import akka.actor.PoisonPill;
 import akka.actor.Props;
 import akka.actor.Terminated;
 import de.hpi.ddm.structures.PasswordMessage;
+import de.hpi.ddm.structures.WorkAvailabilityMessage;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -33,6 +33,7 @@ public class Master extends AbstractLoggingActor {
 		this.collector = collector;
 		this.passwordSolver = passwordSolver;
 		this.workers = new ArrayList<>();
+		this.hintSequences = new ArrayList<>();
 	}
 
 	////////////////////
@@ -63,6 +64,7 @@ public class Master extends AbstractLoggingActor {
 	private final ActorRef collector;
 	private final ActorRef passwordSolver;
 	private final List<ActorRef> workers;
+	private ArrayList<List<String>> hintSequences;
 
 	private long startTime;
 	
@@ -86,6 +88,7 @@ public class Master extends AbstractLoggingActor {
 				.match(BatchMessage.class, this::handle)
 				.match(Terminated.class, this::handle)
 				.match(RegistrationMessage.class, this::handle)
+				.match(WorkAvailabilityMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -105,27 +108,42 @@ public class Master extends AbstractLoggingActor {
 		// TODO: Implement the processing of the data for the concrete assignment. ////////////////////////////
 		///////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
 		if (message.getLines().isEmpty()) {
 			this.collector.tell(new Collector.PrintMessage(), this.self());
-			this.terminate();
+			//this.terminate();
 			return;
 		}
 
-		String [] first_line = message.lines.get(0);
-		int id =  Integer.parseInt(first_line[0]);
+		String[] first_line = message.lines.get(0);
+		int id = Integer.parseInt(first_line[0]);
 		String name = first_line[1];
 		String pchars = first_line[2];
 		int plen = Integer.parseInt(first_line[3]);
 		String password = first_line[4];
-		String [] hints = Arrays.copyOfRange(first_line, 5, first_line.length -1 );
+		String[] hints = Arrays.copyOfRange(first_line, 5, first_line.length);
+
+		// Calculate the permutation list
+		if (this.hintSequences.isEmpty()) {
+			for (int i = 0; i < pchars.length(); i++) {
+				String letters_temp = pchars;
+				//Generate string without one character
+				String temp_string = letters_temp.replace(Character.toString(pchars.charAt(i)), "");
+				//Give the string to permutation function which find all the given string permutations, hashes and compares it
+				List<String> list = new ArrayList<>();
+				heapPermutation(temp_string.toCharArray(), 3, 0, list);
+				this.hintSequences.add(list);
+			}
+		}
+
+
 
 		PasswordMessage password1 = new PasswordMessage(id,
 				name,
 				pchars,
 				plen,
 				password,
-				hints);
+				hints,
+				this.hintSequences);
 
 		this.passwordSolver.tell(password1, this.self());
 
@@ -161,5 +179,33 @@ public class Master extends AbstractLoggingActor {
 		this.context().unwatch(message.getActor());
 		this.workers.remove(message.getActor());
 //		this.log().info("Unregistered {}", message.getActor());
+	}
+
+	protected void handle(WorkAvailabilityMessage message) {
+		this.passwordSolver.tell(message, this.self());
+	}
+
+	private void heapPermutation(char[] a, int size, int n, List<String> l) {
+		// If size is 1, store the obtained permutation
+		if (size == 1)
+			l.add(new String(a));
+
+		for (int i = 0; i < size; i++) {
+			heapPermutation(a, size - 1, n, l);
+
+			// If size is odd, swap first and last element
+			if (size % 2 == 1) {
+				char temp = a[0];
+				a[0] = a[size - 1];
+				a[size - 1] = temp;
+			}
+
+			// If size is even, swap i-th and last element
+			else {
+				char temp = a[i];
+				a[i] = a[size - 1];
+				a[size - 1] = temp;
+			}
+		}
 	}
 }
