@@ -19,11 +19,12 @@ public class HintSolver extends AbstractLoggingActor {
 
     public static final String DEFAULT_NAME = "hintSolver";
 
-    public static Props props() {
-        return Props.create(HintSolver.class);
+    public static Props props(final ActorRef advancedPasswordSolver) {
+        return Props.create(HintSolver.class, () -> new HintSolver(advancedPasswordSolver));
     }
 
-    public HintSolver() {
+    public HintSolver(final ActorRef advancedPasswordSolver) {
+        this.advancedPasswordSolver = advancedPasswordSolver;
     }
 
     ////////////////////
@@ -57,7 +58,9 @@ public class HintSolver extends AbstractLoggingActor {
         if (!this.workPackages.empty()) {
             message.getWorkerReference().tell(this.workPackages.pop(), this.sender());
         }
-        // TODO: make sure the worker is set free in this case
+        else {
+            this.advancedPasswordSolver.tell(message, this.sender());
+        }
     }
 
     protected void handle(SolvedHint message) {
@@ -83,6 +86,7 @@ public class HintSolver extends AbstractLoggingActor {
     private Set<Character> solvedHints = new HashSet<Character>();
     private Stack<WorkPackage> workPackages = new Stack<>();
     private ActorRef passwordSolver;
+    private ActorRef advancedPasswordSolver;
 
     /////////////////////
     // Actor Lifecycle //

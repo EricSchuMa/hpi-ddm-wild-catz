@@ -10,6 +10,7 @@ import akka.actor.ActorRef;
 import akka.actor.PoisonPill;
 import akka.actor.Props;
 import akka.actor.Terminated;
+import de.hpi.ddm.structures.FinalResult;
 import de.hpi.ddm.structures.PasswordMessage;
 import de.hpi.ddm.structures.WorkAvailabilityMessage;
 import lombok.AllArgsConstructor;
@@ -89,6 +90,7 @@ public class Master extends AbstractLoggingActor {
 				.match(Terminated.class, this::handle)
 				.match(RegistrationMessage.class, this::handle)
 				.match(WorkAvailabilityMessage.class, this::handle)
+				.match(FinalResult.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -105,7 +107,7 @@ public class Master extends AbstractLoggingActor {
 		// The input file is read in batches for two reasons: /////////////////////////////////////////////////
 		// 1. If we distribute the batches early, we might not need to hold the entire input data in memory. //
 		// 2. If we process the batches early, we can achieve latency hiding. /////////////////////////////////
-		// TODO: Implement the processing of the data for the concrete assignment. ////////////////////////////
+		///////////////////////////////////////////////////////////////////////////////////////////////////////
 		///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 		if (message.getLines().isEmpty()) {
@@ -130,12 +132,10 @@ public class Master extends AbstractLoggingActor {
 				String temp_string = letters_temp.replace(Character.toString(pchars.charAt(i)), "");
 				//Give the string to permutation function which find all the given string permutations, hashes and compares it
 				List<String> list = new ArrayList<>();
-				heapPermutation(temp_string.toCharArray(), 3, 0, list);
+				heapPermutation(temp_string.toCharArray(), pchars.length()-1, 0, list);
 				this.hintSequences.add(list);
 			}
 		}
-
-
 
 		PasswordMessage password1 = new PasswordMessage(id,
 				name,
@@ -183,6 +183,10 @@ public class Master extends AbstractLoggingActor {
 
 	protected void handle(WorkAvailabilityMessage message) {
 		this.passwordSolver.tell(message, this.self());
+	}
+
+	protected void handle(FinalResult message) {
+		System.out.println(message.getPassword());
 	}
 
 	private void heapPermutation(char[] a, int size, int n, List<String> l) {

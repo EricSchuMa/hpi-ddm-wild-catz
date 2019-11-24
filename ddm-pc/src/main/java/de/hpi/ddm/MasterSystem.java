@@ -40,9 +40,11 @@ public class MasterSystem {
 		
 		ActorRef collector = system.actorOf(Collector.props(), Collector.DEFAULT_NAME);
 
-		ActorRef hintSolver = system.actorOf(HintSolver.props(), HintSolver.DEFAULT_NAME);
+		ActorRef advancedPasswordSolver = system.actorOf(AdvancedPasswordSolver.props(), AdvancedPasswordSolver.DEFAULT_NAME);
 
-		ActorRef passwordSolver = system.actorOf(PasswordSolver.props(hintSolver), PasswordSolver.DEFAULT_NAME);
+		ActorRef hintSolver = system.actorOf(HintSolver.props(advancedPasswordSolver), HintSolver.DEFAULT_NAME);
+
+		ActorRef passwordSolver = system.actorOf(PasswordSolver.props(hintSolver, advancedPasswordSolver), PasswordSolver.DEFAULT_NAME);
 		
 		ActorRef master = system.actorOf(Master.props(reader, collector, passwordSolver), Master.DEFAULT_NAME);
 		

@@ -48,8 +48,7 @@ public class Worker extends AbstractLoggingActor {
 
 	private Member masterSystem;
 	private final Cluster cluster;
-	private boolean isInUse = false;
-	
+
 	/////////////////////
 	// Actor Lifecycle //
 	/////////////////////
@@ -103,9 +102,6 @@ public class Worker extends AbstractLoggingActor {
 			// Tell the master that this worker is available to receive work
 			this.getContext().actorSelection(member.address() + "/user/" + Master.DEFAULT_NAME)
 					.tell(new WorkAvailabilityMessage(this.self()), this.self());
-
-			// From now on this worker might be in use
-			this.isInUse = true;
 		}
 	}
 	
@@ -116,16 +112,19 @@ public class Worker extends AbstractLoggingActor {
 
 	private void handle(WorkPackage message) {
 		// hash the permutations and search for targets
-		log().info("Worker {} has received a work package", this.toString());
-		for (String permutation : message.getPermutations()) {
-			if (Arrays.asList(message.getTargets()).contains(hash(permutation))) {
-				List<Character> characterList = new ArrayList<>();
-				for (char ch : permutation.toCharArray()) {
-					characterList.add(ch);
+		if (message.getPermutations() != null) {
+			for (String permutation : message.getPermutations()) {
+				if (Arrays.asList(message.getTargets()).contains(hash(permutation))) {
+					List<Character> characterList = new ArrayList<>();
+					for (char ch : permutation.toCharArray()) {
+						characterList.add(ch);
+					}
+					message.getOwner().tell(new SolvedHint(characterList), this.self());
 				}
-				message.getOwner().tell(new SolvedHint(characterList), this.self());
 			}
 		}
+		this.getContext().actorSelection(this.masterSystem.address() + "/user/" + Master.DEFAULT_NAME)
+				.tell(new WorkAvailabilityMessage(this.self()), this.self());
 	}
 	
 	private String hash(String line) {
