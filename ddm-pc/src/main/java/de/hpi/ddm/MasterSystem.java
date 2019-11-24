@@ -9,11 +9,7 @@ import com.typesafe.config.ConfigFactory;
 import akka.actor.ActorRef;
 import akka.actor.ActorSystem;
 import akka.cluster.Cluster;
-import de.hpi.ddm.actors.Collector;
-import de.hpi.ddm.actors.Master;
-import de.hpi.ddm.actors.Reader;
-import de.hpi.ddm.actors.Reaper;
-import de.hpi.ddm.actors.Worker;
+import de.hpi.ddm.actors.*;
 import de.hpi.ddm.configuration.Configuration;
 import de.hpi.ddm.configuration.ConfigurationSingleton;
 import scala.concurrent.Await;
@@ -43,8 +39,10 @@ public class MasterSystem {
 		ActorRef reader = system.actorOf(Reader.props(), Reader.DEFAULT_NAME);
 		
 		ActorRef collector = system.actorOf(Collector.props(), Collector.DEFAULT_NAME);
+
+		ActorRef passwordSolver = system.actorOf(PasswordSolver.props(), PasswordSolver.DEFAULT_NAME);
 		
-		ActorRef master = system.actorOf(Master.props(reader, collector), Master.DEFAULT_NAME);
+		ActorRef master = system.actorOf(Master.props(reader, collector, passwordSolver), Master.DEFAULT_NAME);
 		
 		Cluster.get(system).registerOnMemberUp(new Runnable() {
 			@Override
