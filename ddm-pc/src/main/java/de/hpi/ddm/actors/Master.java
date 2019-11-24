@@ -1,6 +1,7 @@
 package de.hpi.ddm.actors;
 
 import java.io.Serializable;
+import java.net.PasswordAuthentication;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -10,6 +11,7 @@ import akka.actor.ActorRef;
 import akka.actor.PoisonPill;
 import akka.actor.Props;
 import akka.actor.Terminated;
+import de.hpi.ddm.structures.PasswordMessage;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -22,13 +24,14 @@ public class Master extends AbstractLoggingActor {
 	
 	public static final String DEFAULT_NAME = "master";
 
-	public static Props props(final ActorRef reader, final ActorRef collector) {
-		return Props.create(Master.class, () -> new Master(reader, collector));
+	public static Props props(final ActorRef reader, final ActorRef collector, final ActorRef passwordSolver) {
+		return Props.create(Master.class, () -> new Master(reader, collector, passwordSolver));
 	}
 
-	public Master(final ActorRef reader, final ActorRef collector) {
+	public Master(final ActorRef reader, final ActorRef collector, final ActorRef passwordSolver) {
 		this.reader = reader;
 		this.collector = collector;
+		this.passwordSolver = passwordSolver;
 		this.workers = new ArrayList<>();
 	}
 
@@ -58,6 +61,7 @@ public class Master extends AbstractLoggingActor {
 
 	private final ActorRef reader;
 	private final ActorRef collector;
+	private final ActorRef passwordSolver;
 	private final List<ActorRef> workers;
 
 	private long startTime;
@@ -100,13 +104,31 @@ public class Master extends AbstractLoggingActor {
 		// 2. If we process the batches early, we can achieve latency hiding. /////////////////////////////////
 		// TODO: Implement the processing of the data for the concrete assignment. ////////////////////////////
 		///////////////////////////////////////////////////////////////////////////////////////////////////////
-		
+
+
 		if (message.getLines().isEmpty()) {
 			this.collector.tell(new Collector.PrintMessage(), this.self());
 			this.terminate();
 			return;
 		}
-		
+
+		String [] first_line = message.lines.get(0);
+		int id =  Integer.parseInt(first_line[0]);
+		String name = first_line[1];
+		String pchars = first_line[2];
+		int plen = Integer.parseInt(first_line[3]);
+		String password = first_line[4];
+		String [] hints = Arrays.copyOfRange(first_line, 5, first_line.length -1 );
+
+		PasswordMessage password1 = new PasswordMessage(id,
+				name,
+				pchars,
+				plen,
+				password,
+				hints);
+
+		this.passwordSolver.tell(password1, this.self());
+
 		for (String[] line : message.getLines())
 			System.out.println(Arrays.toString(line));
 		
