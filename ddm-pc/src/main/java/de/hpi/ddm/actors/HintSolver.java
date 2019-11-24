@@ -3,10 +3,13 @@ package de.hpi.ddm.actors;
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
+import com.sun.corba.se.spi.orbutil.threadpool.Work;
 import de.hpi.ddm.structures.HintsMessage;
+import de.hpi.ddm.structures.SolvedHint;
+import de.hpi.ddm.structures.WorkAvailabilityMessage;
+import de.hpi.ddm.structures.WorkPackage;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class HintSolver extends AbstractLoggingActor {
 
@@ -14,14 +17,13 @@ public class HintSolver extends AbstractLoggingActor {
     // Actor Construction //
     ////////////////////////
 
-    public static final String  DEFAULT_NAME = "hintSolver";
+    public static final String DEFAULT_NAME = "hintSolver";
 
-    public static Props props(){
+    public static Props props() {
         return Props.create(HintSolver.class);
     }
 
-    public HintSolver(){
-        this.workers = new ArrayList<>();
+    public HintSolver() {
     }
 
     ////////////////////
@@ -29,28 +31,58 @@ public class HintSolver extends AbstractLoggingActor {
     ////////////////////
 
 
-    public Receive createReceive(){
+    public Receive createReceive() {
         return receiveBuilder()
                 .match(HintsMessage.class, this::handle)
+                .match(WorkAvailabilityMessage.class, this::handle)
+                .match(SolvedHint.class, this::handle)
                 .matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
                 .build();
     }
 
     protected void handle(HintsMessage message) {
         this.hints = message.getHints();
+        this.pchars = message.getPchars();
+        this.passwordSolver = message.getOwner();
         log().info("Received Hints and trying to solve them ...");
-        for (String hint : this.hints) {
-            log().info("Received hint: {} \n", hint);
-            // do some preprocessing here
+
+        for (List<String> oneLetterList : message.getPermutationList()) {
+            WorkPackage workPackage = new WorkPackage(this.hints, oneLetterList, this.self());
+            this.workPackages.push(workPackage);
         }
     }
+
+    protected void handle(WorkAvailabilityMessage message) {
+        // send the Work Package to some worker
+        if (!this.workPackages.empty()) {
+            message.getWorkerReference().tell(this.workPackages.pop(), this.sender());
+        }
+        // TODO: make sure the worker is set free in this case
+    }
+
+    protected void handle(SolvedHint message) {
+        for (Character possibleCharacter: pchars) {
+            if (!message.getPermutation().contains(possibleCharacter)) {
+                solvedHints.add(possibleCharacter);
+                this.log().info("Hint is {}", possibleCharacter);
+                if (solvedHints.size() == hints.length) {
+                    List<Character> listOfAllHints = new ArrayList<Character>(solvedHints);
+                    this.passwordSolver.tell(new SolvedHint(listOfAllHints), this.self());
+                }
+            }
+        }
+    }
+
 
     /////////////////
     // Actor State //
     /////////////////
 
-    private final List<ActorRef> workers;
     private String[] hints;
+    private List<Character> pchars;
+    private Set<Character> solvedHints = new HashSet<Character>();
+    private Stack<WorkPackage> workPackages = new Stack<>();
+    private ActorRef passwordSolver;
 
     /////////////////////
     // Actor Lifecycle //
