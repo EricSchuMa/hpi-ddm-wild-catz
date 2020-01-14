@@ -1,4 +1,4 @@
-package com.wildatz.app
+package discovery
 
 object testScript extends App {
 
