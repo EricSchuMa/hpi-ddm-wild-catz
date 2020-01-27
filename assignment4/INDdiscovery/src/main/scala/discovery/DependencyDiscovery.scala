@@ -1,21 +1,26 @@
 package discovery
 
 import java.io.File
+
+import breeze.linalg.SparseVector.CanCopySparseVector
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{Dataset, SparkSession}
 import org.apache.spark.sql.types.DataType
+
+import scala.collection.immutable.ListMap
 import scala.collection.mutable
 
 object DependencyDiscovery {
   def main(args: Array[String]): Unit = {
     var data_dir = "./TPCH"
     var cores = "4"
+    var verbose = false
 
-    if (args.length == 2 || args.length == 4) {
+    if (args.length == 2) {
       if (args(0) == "--path") data_dir = args(1)
       if (args(0) == "--cores") cores = args(1)
     }
-    else if (args.length == 4) {
+    else if (args.length >= 4) {
       if (args(0) == "--path") data_dir = args(1)
       else data_dir = args(3)
       if (args(0) == "--cores") cores = args(1)
@@ -26,8 +31,11 @@ object DependencyDiscovery {
       println("Try: java -jar YourAlgorithmName.jar --path TPCH --cores 4")
       System.exit(1)
     }
+    if (args.length == 5) {
+      if(args(4) == "--verbose") verbose = true
+    }
 
-    printf("\nProgram staring with %s cores...\n", cores)
+    if (verbose) printf("\nProgram staring with %s cores...\n", cores)
 
     Logger.getLogger("org").setLevel(Level.OFF)
     Logger.getLogger("akka").setLevel(Level.OFF)
@@ -50,7 +58,7 @@ object DependencyDiscovery {
     val result = scala.collection.mutable.Map[String, String]()
 
     files.foreach(file => {
-      println("\n==================== Starting with file: " + file + " ====================")
+      if (verbose) println("\n==================== Starting with file: " + file + " ====================")
       // Get current file index
       val current_file_index = files.indexOf(file)
 
@@ -68,7 +76,7 @@ object DependencyDiscovery {
       columns.foreach(column => {
         val current_index = columns.indexOf(column)
         val current_column = column
-        println("\n-------------------- Checking for column: " + current_column + " --------------------\n")
+        if (verbose) println("\n-------------------- Checking for column: " + current_column + " --------------------\n")
 
         // Get distinct column values
         val setA = df.select(current_column).map(_.get(0).toString).collect.toSet
@@ -85,16 +93,19 @@ object DependencyDiscovery {
               val setB = df.select(next_column).map(_.get(0).toString).collect.toSet
 
               // Check if a column is a subset of the other one
-              println(current_column + " ⊆ " + next_column + " = " + setA.subsetOf(setB))
-              println(next_column + " ⊆ " + current_column + " = " + setB.subsetOf(setA))
+              val aInB = setA.subsetOf(setB)
+              val bInA = setB.subsetOf(setA)
 
-              if (setA.subsetOf(setB)) {
+              if (verbose) println(current_column + " ⊆ " + next_column + " = " + aInB)
+              if (verbose) println(next_column + " ⊆ " + current_column + " = " + bInA)
+
+              if (bInA) {
                 if (result.contains(next_column)) {
                   result(next_column) = result(next_column) + ", " + current_column
                 }
                 else result += (next_column -> current_column)
               }
-              if (setB.subsetOf(setA)) {
+              if (aInB) {
                 if (result.contains(current_column)) {
                   result(current_column) = result(current_column) + ", " + next_column
                 }
@@ -105,22 +116,26 @@ object DependencyDiscovery {
         }
 
         // Check inclusion dependency in other files
-        findSubsetInOtherFiles(setA, dataTypeSetA, current_column, files, current_file_index, result, spark)
+        findSubsetInOtherFiles(setA, dataTypeSetA, current_column, files, current_file_index, result, spark, verbose)
       })
     })
 
-    println("\nResult:")
-    for ((k, v) <- result) printf("%s < %s\n", k, v)
+    if (verbose) println("\nResult:")
+
+    // print the results in lexicographic order
+    for((k,v) <- ListMap(result.toSeq.sortBy(_._1):_*)) printf("%s < %s\n", k, v)
+    //for ((k, v) <- result) printf("%s < %s\n", k, v)
   }
 
   def findSubsetInOtherFiles(setA: Set[String], dataTypeSetA: DataType, current_column: String, files: List[String],
-                             current_file_index: Int, result: mutable.Map[String, String], spark: SparkSession): Unit = {
+                             current_file_index: Int, result: mutable.Map[String, String], spark: SparkSession,
+                             verbose: Boolean): Unit = {
     // Importing implicit encoders for standard library classes and tuples that are used as Dataset types
     import spark.implicits._
 
     for (next_file_index <- (current_file_index + 1) until files.length) {
       val next_file = files(next_file_index)
-      println("-------------------- Checking in file: " + next_file + " --------------------")
+      if (verbose) println("-------------------- Checking in file: " + next_file + " --------------------")
 
       // Read Dataset from the a file
       val df = spark.read
@@ -140,16 +155,19 @@ object DependencyDiscovery {
           val setB = df.select(column).map(_.get(0).toString).collect.toSet
 
           // Check if a column is a subset of the other one
-          println(current_column + " ⊆ " + column + " = " + setA.subsetOf(setB))
-          println(column + " ⊆ " + current_column + " = " + setB.subsetOf(setA))
+          val aInB = setA.subsetOf(setB)
+          val bInA = setB.subsetOf(setA)
 
-          if (setA.subsetOf(setB)) {
+          if (verbose) println(current_column + " ⊆ " + column + " = " + aInB)
+          if (verbose) println(column + " ⊆ " + current_column + " = " + bInA)
+
+          if (bInA) {
             if (result.contains(column)) {
               result(column) = result(column) + ", " + current_column
             }
             else result += (column -> current_column)
           }
-          if (setB.subsetOf(setA)) {
+          if (aInB) {
             if (result.contains(current_column)) {
               result(current_column) = result(current_column) + ", " + column
             }
