@@ -2,9 +2,8 @@ package discovery
 
 import java.io.File
 
-import breeze.linalg.SparseVector.CanCopySparseVector
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.sql.{Dataset, SparkSession}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.types.DataType
 
 import scala.collection.immutable.ListMap
